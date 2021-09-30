@@ -38,6 +38,24 @@ describe("VNRService", function () {
     ).to.equal(true);
   });
 
+  it("Alice Should fail registering a short name", async function () {
+    await expect(
+      vnrService.connect(alice).isNameAvailable(ethers.utils.toUtf8Bytes("as"))
+    ).to.be.revertedWith("Name is too short.");
+  });
+
+  it("Alice Should fail registering a long name", async function () {
+    await expect(
+      vnrService
+        .connect(alice)
+        .isNameAvailable(
+          ethers.utils.toUtf8Bytes(
+            "thisisaveryverylongnametofegisteritshouldfail"
+          )
+        )
+    ).to.be.revertedWith("Name is too long.");
+  });
+
   it("Alice Should preregister a name", async function () {
     const hashedName = await vnrServiceHelper
       .connect(alice)
@@ -48,7 +66,7 @@ describe("VNRService", function () {
   it("Alice should fail registering a name for cooldown", async function () {
     await expect(
       vnrService.connect(alice).register(ethers.utils.toUtf8Bytes(name))
-    ).to.be.revertedWith("Precommit not unlocked yet. 5 minutes cooldown");
+    ).to.be.revertedWith("Register not unlocked yet. 5 minutes cooldown");
   });
 
   it("Alice should fail registering a name for insufficient amount", async function () {
@@ -73,7 +91,7 @@ describe("VNRService", function () {
       vnrService
         .connect(bob)
         .register(ethers.utils.toUtf8Bytes(name), overrides)
-    ).to.be.revertedWith("Precommit not unlocked yet. 5 minutes cooldown");
+    ).to.be.revertedWith("Register not unlocked yet. 5 minutes cooldown");
   });
 
   it("Alice should get price and register a name", async function () {
@@ -92,6 +110,14 @@ describe("VNRService", function () {
     ).to.be.revertedWith("Vanity name is not available.");
   });
 
+  it("Should return Alice is owner", async function () {
+    expect(
+      await vnrService
+        .connect(alice)
+        .getNameOwner(ethers.utils.toUtf8Bytes(name))
+    ).to.be.equal(alice.address);
+  });
+
   it("Alice should be able to renew/extend expiry date", async function () {
     const priceName = await vnrService
       .connect(alice)
@@ -107,10 +133,21 @@ describe("VNRService", function () {
       vnrService
         .connect(bob)
         .withdrawLockedBalance(ethers.utils.toUtf8Bytes(name))
-    ).to.be.revertedWith("You are not the owner of this vanity name.");
+    ).to.be.revertedWith("No balance to unlock");
+  });
+
+  it("Alice should not be able to unlock balance yet", async function () {
+    await expect(
+      vnrService
+        .connect(alice)
+        .withdrawLockedBalance(ethers.utils.toUtf8Bytes(name))
+    ).to.be.revertedWith("Balance still locked");
   });
 
   it("Alice should be able to unlock balance", async function () {
+    //Add 2 years to evm
+    await addEvmTime(31656926 * 2);
+    await mineBlocks(1);
     const balanceBefore = await getAccountBalance(alice.address);
     await vnrService
       .connect(alice)
@@ -124,7 +161,7 @@ describe("VNRService", function () {
       vnrService
         .connect(alice)
         .withdrawLockedBalance(ethers.utils.toUtf8Bytes(name))
-    ).to.be.revertedWith("No locked balance");
+    ).to.be.revertedWith("No balance to unlock");
   });
 
   it("Should the registered name be available again", async function () {
@@ -133,6 +170,59 @@ describe("VNRService", function () {
         .connect(alice)
         .isNameAvailable(ethers.utils.toUtf8Bytes(name))
     ).to.equal(true);
+  });
+
+  it("Should the registered name have 0 address ownership", async function () {
+    expect(
+      await vnrService
+        .connect(alice)
+        .getNameOwner(ethers.utils.toUtf8Bytes(name))
+    ).to.be.equal(ethers.constants.AddressZero);
+  });
+
+  it("Alice should be able to register name again", async function () {
+    //Preregister
+    const hashedName = await vnrServiceHelper
+      .connect(alice)
+      .getPreRegisterHash(ethers.utils.toUtf8Bytes(name));
+    await vnrService.connect(alice).preRegister(hashedName);
+    //Mine blocks to allow preRegister (add 5 minutes)
+    await addEvmTime(400);
+    await mineBlocks(1);
+    //Register
+    const priceName = await vnrService
+      .connect(alice)
+      .getRegisterPrice(ethers.utils.toUtf8Bytes(name));
+    const overrides = { value: String(priceName) };
+    await vnrService
+      .connect(alice)
+      .register(ethers.utils.toUtf8Bytes(name), overrides);
+    //Check availability
+    await expect(
+      vnrService.connect(alice).isNameAvailable(ethers.utils.toUtf8Bytes(name))
+    ).to.be.revertedWith("Vanity name is not available.");
+    expect(
+      await vnrService
+        .connect(alice)
+        .getNameOwner(ethers.utils.toUtf8Bytes(name))
+    ).to.be.equal(alice.address);
+    //Mine blocks for a year
+    await addEvmTime(31656926);
+    await mineBlocks(1);
+    expect(
+      await vnrService
+        .connect(alice)
+        .isNameAvailable(ethers.utils.toUtf8Bytes(name))
+    ).to.equal(true);
+  });
+
+  it("Alice should be able to unlock balance again", async function () {
+    const balanceBefore = await getAccountBalance(alice.address);
+    await vnrService
+      .connect(alice)
+      .withdrawLockedBalance(ethers.utils.toUtf8Bytes(name));
+    const balanceAfter = await getAccountBalance(alice.address);
+    expect(balanceAfter > balanceBefore).to.equal(true);
   });
 
   it("Bob should not be able to withdraw fees", async function () {

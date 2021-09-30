@@ -18,5 +18,4 @@ contract VNRServiceHelper is VNRService {
 		// @dev - tightly pack parameters in struct for keccak256
 		return keccak256(abi.encodePacked(msg.sender, _name));
 	}
-
 }

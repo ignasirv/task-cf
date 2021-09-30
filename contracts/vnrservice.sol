@@ -13,8 +13,12 @@ contract VNRService is Ownable {
 	struct VName {
 		bytes name;
 		uint256 expires;
-		uint256 lockedBalance;
 		address owner;
+	}
+
+	struct LockedBalance {
+		uint256 expires;
+		uint256 lockedBalance;
 	}
 
 	/** STATE VARIABLES */
@@ -28,7 +32,8 @@ contract VNRService is Ownable {
 
 	// @dev - storing the NameHash (bytes32) to its details
 	mapping(bytes32 => VName) public vnames;
-	mapping(bytes32 => uint256) public preCommits;
+	mapping(bytes32 => uint256) public preRegisters;
+    mapping(bytes32 => LockedBalance) public lockedBalances;
 
 	/**
 	 * MODIFIERS
@@ -48,7 +53,8 @@ contract VNRService is Ownable {
 		bytes32 nameHash = getNameHash(name);
 		// @dev - check whether the msg.sender is the owner of the vanity name
 		require(
-			vnames[nameHash].owner == msg.sender,
+			vnames[nameHash].owner == msg.sender &&
+				vnames[nameHash].expires > block.timestamp,
 			"You are not the owner of this vanity name."
 		);
 		_;
@@ -73,10 +79,10 @@ contract VNRService is Ownable {
 
 	modifier isRegisterOpen(address _address, bytes memory _name) {
 		bytes32 secret = keccak256(abi.encodePacked(_address, _name));
-		require(preCommits[secret] > 0, "No precommit for your vanity name");
+		require(preRegisters[secret] > 0, "No preregister for your vanity name");
 		require(
-			block.timestamp > preCommits[secret] + FRONTRUN_TIME,
-			"Precommit not unlocked yet. 5 minutes cooldown"
+			block.timestamp > preRegisters[secret] + FRONTRUN_TIME,
+			"Register not unlocked yet. 5 minutes cooldown"
 		);
 		_;
 	}
@@ -93,7 +99,7 @@ contract VNRService is Ownable {
 	 * @param _hash - called address hashed with the desired name
 	 */
 	function preRegister(bytes32 _hash) external {
-		preCommits[_hash] = block.timestamp;
+		preRegisters[_hash] = block.timestamp;
 	}
 
 	/*
@@ -118,11 +124,18 @@ contract VNRService is Ownable {
 		VName memory newVName = VName({
 			name: _name,
 			expires: block.timestamp + lockTime,
-			lockedBalance: msg.value.sub(namePrice),
 			owner: msg.sender
 		});
-		// save the vanity name to the storage
+
+        LockedBalance memory lb = LockedBalance({
+            expires: block.timestamp + lockTime,
+			lockedBalance: msg.value.sub(namePrice)
+        });
+        bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
+		
+        // save the vanity name and the locked balance to the storage
 		vnames[nameHash] = newVName;
+        lockedBalances[key] = lb;
 
 		//Accumulate fees
 		feesAmount += namePrice;
@@ -146,8 +159,12 @@ contract VNRService is Ownable {
 		//Accumulate fees
 		feesAmount += namePrice;
 
-		// add 365 days (1 year) to the vanity expiration date
+		// Increase lock time to the vanity expiration date
 		vnames[nameHash].expires += lockTime;
+
+        // Increase lock time to the locked balance expiration date
+        bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
+        lockedBalances[key].expires += lockTime;
 
 		// log vanity name Renewed
 		emit VNameRenewed(_name, msg.sender, block.timestamp);
@@ -231,6 +248,21 @@ contract VNRService is Ownable {
 		return true;
 	}
 
+	/*
+	 * @dev - Get name owner
+	 * @param _name
+	 * @return owner
+	 */
+	function getNameOwner(bytes memory _name) external view returns (address) {
+		// calculate the name hash
+		bytes32 nameHash = getNameHash(_name);
+		if (vnames[nameHash].expires < block.timestamp) {
+			return address(0);
+		}
+
+		return vnames[nameHash].owner;
+	}
+
 	/**
 	 * @dev - Withdraw function
 	 */
@@ -247,21 +279,15 @@ contract VNRService is Ownable {
 	 */
 	function withdrawLockedBalance(bytes memory _name)
 		external
-		isNameOwner(_name)
 	{
-		// calculate the name hash
-		bytes32 nameHash = getNameHash(_name);
+        bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
 
-        require(vnames[nameHash].lockedBalance > 0, "No locked balance");
-		//Expire the name
-		vnames[nameHash].expires = 0;
+        require(lockedBalances[key].lockedBalance > 0, "No balance to unlock");
+        require(lockedBalances[key].expires < block.timestamp, "Balance still locked");
 
-		/**
-		 * @dev - Unlock the balance. First we set the locked balance to 0 
-         and then we make the transfer to avoid reentrancy
-		 */
-		uint256 lockedBalance = vnames[nameHash].lockedBalance;
-		vnames[nameHash].lockedBalance = 0;
-		payable(msg.sender).transfer(lockedBalance);
+        //Create aux to avoid reentrancy
+		uint256 aux = lockedBalances[key].lockedBalance;
+		lockedBalances[key].lockedBalance = 0;
+		payable(msg.sender).transfer(aux);
 	}
 }

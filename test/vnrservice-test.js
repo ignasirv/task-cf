@@ -1,7 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 let vnrService;
-let vnrServiceHelper;
 let owner;
 let alice;
 let bob;
@@ -9,15 +8,11 @@ let bob;
 describe("VNRService", function () {
   const name = "vanity_name";
 
-  it("Should deploy VNRService and VNRServiceHelper and check public variables", async function () {
+  it("Should deploy VNRService and check public variables", async function () {
     const VNRService = await ethers.getContractFactory("VNRService");
     vnrService = await VNRService.deploy();
     await vnrService.deployed();
-    const VNRServiceHelper = await ethers.getContractFactory(
-      "VNRServiceHelper"
-    );
-    vnrServiceHelper = await VNRServiceHelper.deploy();
-    await vnrServiceHelper.deployed();
+
     [owner, alice, bob] = await ethers.getSigners();
 
     expect(await vnrService.lockNamePrice()).to.equal("10000000000000000");
@@ -57,7 +52,7 @@ describe("VNRService", function () {
   });
 
   it("Alice Should preregister a name", async function () {
-    const hashedName = await vnrServiceHelper
+    const hashedName = await vnrService
       .connect(alice)
       .getPreRegisterHash(ethers.utils.toUtf8Bytes(name));
     await vnrService.connect(alice).preRegister(hashedName);
@@ -79,7 +74,7 @@ describe("VNRService", function () {
   });
 
   it("Bob should fail trying to frontrun Alice", async function () {
-    const hashedName = await vnrServiceHelper
+    const hashedName = await vnrService
       .connect(bob)
       .getPreRegisterHash(ethers.utils.toUtf8Bytes(name));
     await vnrService.connect(bob).preRegister(hashedName);
@@ -182,7 +177,7 @@ describe("VNRService", function () {
 
   it("Alice should be able to register name again", async function () {
     //Preregister
-    const hashedName = await vnrServiceHelper
+    const hashedName = await vnrService
       .connect(alice)
       .getPreRegisterHash(ethers.utils.toUtf8Bytes(name));
     await vnrService.connect(alice).preRegister(hashedName);
@@ -235,7 +230,7 @@ describe("VNRService", function () {
     const balanceBefore = await getAccountBalance(owner.address);
     await vnrService.withdrawFees();
     const balanceAfter = await getAccountBalance(owner.address);
-    expect(balanceAfter > balanceBefore).to.equal(true);
+    expect(balanceAfter - balanceBefore > 0).to.equal(true);
   });
 
   it("Owner should not be able to withdraw twice", async function () {

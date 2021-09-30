@@ -33,7 +33,7 @@ contract VNRService is Ownable {
 	// @dev - storing the NameHash (bytes32) to its details
 	mapping(bytes32 => VName) public vnames;
 	mapping(bytes32 => uint256) public preRegisters;
-    mapping(bytes32 => LockedBalance) public lockedBalances;
+	mapping(bytes32 => LockedBalance) public lockedBalances;
 
 	/**
 	 * MODIFIERS
@@ -79,7 +79,10 @@ contract VNRService is Ownable {
 
 	modifier isRegisterOpen(address _address, bytes memory _name) {
 		bytes32 secret = keccak256(abi.encodePacked(_address, _name));
-		require(preRegisters[secret] > 0, "No preregister for your vanity name");
+		require(
+			preRegisters[secret] > 0,
+			"No preregister for your vanity name"
+		);
 		require(
 			block.timestamp > preRegisters[secret] + FRONTRUN_TIME,
 			"Register not unlocked yet. 5 minutes cooldown"
@@ -127,15 +130,15 @@ contract VNRService is Ownable {
 			owner: msg.sender
 		});
 
-        LockedBalance memory lb = LockedBalance({
-            expires: block.timestamp + lockTime,
+		LockedBalance memory lb = LockedBalance({
+			expires: block.timestamp + lockTime,
 			lockedBalance: msg.value.sub(namePrice)
-        });
-        bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
-		
-        // save the vanity name and the locked balance to the storage
+		});
+		bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
+
+		// save the vanity name and the locked balance to the storage
 		vnames[nameHash] = newVName;
-        lockedBalances[key] = lb;
+		lockedBalances[key] = lb;
 
 		//Accumulate fees
 		feesAmount += namePrice;
@@ -162,9 +165,9 @@ contract VNRService is Ownable {
 		// Increase lock time to the vanity expiration date
 		vnames[nameHash].expires += lockTime;
 
-        // Increase lock time to the locked balance expiration date
-        bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
-        lockedBalances[key].expires += lockTime;
+		// Increase lock time to the locked balance expiration date
+		bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
+		lockedBalances[key].expires += lockTime;
 
 		// log vanity name Renewed
 		emit VNameRenewed(_name, msg.sender, block.timestamp);
@@ -263,6 +266,20 @@ contract VNRService is Ownable {
 		return vnames[nameHash].owner;
 	}
 
+	/*
+	 * @dev - Get name hash used for unique identifier
+	 * @param name
+	 * @return nameHash
+	 */
+	function getPreRegisterHash(bytes memory _name)
+		public
+		view
+		returns (bytes32)
+	{
+		// @dev - tightly pack parameters in struct for keccak256
+		return keccak256(abi.encodePacked(msg.sender, _name));
+	}
+
 	/**
 	 * @dev - Withdraw function
 	 */
@@ -277,15 +294,16 @@ contract VNRService is Ownable {
 	/**
 	 * @dev - Withdraw user's locked balance
 	 */
-	function withdrawLockedBalance(bytes memory _name)
-		external
-	{
-        bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
+	function withdrawLockedBalance(bytes memory _name) external {
+		bytes32 key = keccak256(abi.encodePacked(msg.sender, _name));
 
-        require(lockedBalances[key].lockedBalance > 0, "No balance to unlock");
-        require(lockedBalances[key].expires < block.timestamp, "Balance still locked");
+		require(lockedBalances[key].lockedBalance > 0, "No balance to unlock");
+		require(
+			lockedBalances[key].expires < block.timestamp,
+			"Balance still locked"
+		);
 
-        //Create aux to avoid reentrancy
+		//Create aux to avoid reentrancy
 		uint256 aux = lockedBalances[key].lockedBalance;
 		lockedBalances[key].lockedBalance = 0;
 		payable(msg.sender).transfer(aux);
